@@ -1,0 +1,164 @@
+---
+title: "CDR3"
+author: "Laura Biggins"
+date: '2022-06-23'
+runtime: shiny
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(shiny)
+library(tidyverse)
+library(plotly)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## R Markdown
+
+```{r}
+ds2 <- readr::read_tsv("umtboth.txt")
+ds1 <- readr::read_tsv("ydall.txt") 
+
+aa_lengths1 <- ds1 %>%
+  #select(V_CALL, CDR3_IGBLAST_AA) %>%
+  select(CDR3_IGBLAST_AA) %>%
+  rename(AA = CDR3_IGBLAST_AA) %>%
+  mutate(n_aa = nchar(AA)) %>%
+  count(n_aa)
+
+aa_lengths <- ds2 %>%
+  #select(V_CALL, CDR3_IGBLAST_AA) %>%
+  select(CDR3_IGBLAST_AA) %>%
+  rename(AA = CDR3_IGBLAST_AA) %>%
+  mutate(n_aa = nchar(AA)) %>%
+  count(n_aa)
+```
+
+```{r, fig.show="hold", out.width="50%"}
+aa_lengths1 %>%
+  ggplot(aes(x=n_aa, y=n)) +
+  geom_col() +
+  ggtitle("ydall")
+
+aa_lengths %>%
+  ggplot(aes(x=n_aa, y=n)) +
+  geom_col() +
+  ggtitle("umtboth")
+```
+
+```{r}
+summary <- ds2 %>%
+  select(V_CALL, CDR3_IGBLAST_AA) %>%
+  #select(CDR3_IGBLAST_AA) %>%
+  rename(AA = CDR3_IGBLAST_AA) %>%
+  mutate(n_aa = nchar(AA)) %>%
+  relocate(n_aa, .before=AA) %>%
+  filter(nchar(AA) < 17 & nchar(AA) >=7) %>%
+  separate(AA, sep = 1:15, into = as.character(1:16), fill = "right", remove = FALSE) %>%
+  pivot_longer(-(V_CALL:AA), names_to = "pos") %>%
+  filter(value != "") %>%
+  mutate(pos = forcats::as_factor(pos)) 
+
+aa_counts <- summary %>%
+  group_by(V_CALL, pos) %>%
+  count(value) %>%
+  ungroup() 
+
+summary1 <- ds1 %>%
+  select(V_CALL, CDR3_IGBLAST_AA) %>%
+  #select(CDR3_IGBLAST_AA) %>%
+  rename(AA = CDR3_IGBLAST_AA) %>%
+  mutate(n_aa = nchar(AA)) %>%
+  relocate(n_aa, .before=AA) %>%
+  filter(nchar(AA) < 17 & nchar(AA) >=7) %>%
+  separate(AA, sep = 1:15, into = as.character(1:16), fill = "right", remove = FALSE) %>%
+  pivot_longer(-(V_CALL:AA), names_to = "pos") %>%
+  filter(value != "") %>%
+  mutate(pos = forcats::as_factor(pos)) 
+
+aa_counts1 <- summary1 %>%
+  group_by(V_CALL, pos) %>%
+  count(value) %>%
+  ungroup() 
+
+```
+
+```{r, differences}
+pos_counts1 <- summary1 %>%
+  add_count(V_CALL, pos, value, name = "aa_count1") %>%
+  add_count(V_CALL, pos, name = "total") %>%
+  mutate(aa_percent1 = (aa_count1/total)*100) %>%
+  select(-AA, -total, -n_aa) %>%
+  distinct() # if we don't do this we get loads of repetition due to the n_aa lengths
+
+pos_counts <- summary %>%
+  add_count(V_CALL, pos, value, name = "aa_count2") %>%
+  add_count(V_CALL, pos, name = "total") %>%
+  mutate(aa_percent2 = (aa_count2/total)*100) %>%
+  select(-AA, -total, -n_aa) %>%
+  distinct()
+
+
+# there are lots of different lengths, so we need to remove those from the join or the table size gets ridiculous. If we're going to filter on length, it'll have to be upstream.
+# I've removed n_aa from pos_counts
+joined <- pos_counts1 %>%
+  full_join(pos_counts, by = c("V_CALL", "pos", "value")) %>%
+  #replace(is.na(.), 0)
+  mutate(aa_count1 = replace_na(aa_count1, 0)) %>%
+  mutate(aa_percent1 = replace_na(aa_percent1, 0)) %>%
+  mutate(aa_count2 = replace_na(aa_count2, 0)) %>%
+  mutate(aa_percent2 = replace_na(aa_percent2, 0)) %>%
+  mutate(percent_diff = aa_percent1-aa_percent2) %>%
+  mutate(raw_diff = aa_count1-aa_count2)
+
+```
+
+
+```{r}
+vcalls <- summary %>%
+  distinct(V_CALL) %>%
+  pull()
+```
+
+```{r}
+selectInput("vcall", label = "select V call", choices = vcalls)
+sliderInput("aa_length", label = "length of CDR3", min=7, max=16, value = c(7,16))
+```
+
+
+```{r}
+data_filt <- reactive({
+  summary %>%
+    dplyr::filter(V_CALL == input$vcall) %>%
+    dplyr::filter(n_aa >= input$aa_length[1] & n_aa <= input$aa_length[2]) %>%
+    group_by(V_CALL, pos) %>%
+    count(value) %>%
+    ungroup() 
+  })
+```
+
+```{r}
+renderPlotly({
+  p <- data_filt() %>%
+    ggplot(aes(x = pos, y=n, fill=value)) +
+    geom_col()
+  
+  ggplotly(p)
+})
+```
+
+
+```{r}
+renderPlotly({
+  data_filt() %>%
+  plotly::plot_ly(x= ~pos, y= ~n, color= ~value) %>%
+  plotly::add_text(
+    text = ~value,
+    #hovertext = ~name,
+    #hoverinfo = "text",
+    size = I(20)
+  )
+})
+```
+
+
