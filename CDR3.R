@@ -28,11 +28,15 @@ summary <- ds2 %>%
   count(value) %>%
   ungroup() 
 
+
+my_colours <- colorRampPalette(RColorBrewer::brewer.pal(8, "Dark2"))(20)
+
 summary %>%
   filter(V_CALL == "IGHV3-1") %>%
   ggplot(aes(x = pos, y=n, fill=value)) +
-  geom_col() 
-
+  geom_col() +
+  scale_fill_manual(values = my_colours)
+  
 data_filt <- summary %>%
   filter(V_CALL == "IGHV3-1") #%>%
   #filter(value == "G")
